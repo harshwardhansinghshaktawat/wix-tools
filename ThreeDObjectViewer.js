@@ -3,7 +3,7 @@ class ThreeDObjectViewer extends HTMLElement {
     super();
     
     // Configuration constants
-    this.OBJ_FILE_URL = 'https://example.com/path/to/your/model.obj'; // Replace with your .obj file URL
+    this.OBJ_FILE_URL = 'https://tmpfiles.org/dl/15684843/intercom_with_screen.obj'; // Replace with your .obj file URL
     this.TEXTURE_URL = ''; // Optional: Add texture URL if needed
     
     // Animation state
