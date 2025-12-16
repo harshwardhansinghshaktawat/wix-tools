@@ -3,8 +3,7 @@ class ThreeDObjectViewer extends HTMLElement {
     super();
     
     // Configuration constants
-    this.OBJ_FILE_URL = 'https://tmpfiles.org/dl/15684843/intercom_with_screen.obj'; // Replace with your .obj file URL
-    this.TEXTURE_URL = ''; // Optional: Add texture URL if needed
+    this.OBJ_FILE_URL = 'https://tmpfiles.org/dl/15684843/intercom_with_screen.obj';
     
     // Animation state
     this.isInViewport = false;
@@ -147,42 +146,63 @@ class ThreeDObjectViewer extends HTMLElement {
   loadThreeJS(callback) {
     // Check if THREE.js is already loaded
     if (window.THREE) {
+      console.log('THREE.js already loaded');
       this.librariesLoaded = true;
       callback();
       return;
     }
 
-    // Load THREE.js core library
+    console.log('Starting to load THREE.js libraries...');
+
+    // Load THREE.js core library (r128 for better compatibility)
     const threeScript = document.createElement('script');
-    threeScript.src = 'https://cdn.jsdelivr.net/npm/three@0.158.0/build/three.min.js';
+    threeScript.src = 'https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js';
     threeScript.onload = () => {
-      console.log('THREE.js loaded');
+      console.log('THREE.js core loaded');
       
-      // After THREE.js loads, load OrbitControls
-      const orbitScript = document.createElement('script');
-      orbitScript.src = 'https://cdn.jsdelivr.net/npm/three@0.158.0/examples/js/controls/OrbitControls.js';
-      orbitScript.onload = () => {
-        console.log('OrbitControls loaded');
+      // After THREE.js loads, load OBJLoader
+      const objLoaderScript = document.createElement('script');
+      objLoaderScript.src = 'https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/OBJLoader.js';
+      objLoaderScript.onload = () => {
+        console.log('OBJLoader loaded');
         
-        // After OrbitControls loads, load OBJLoader
-        const objLoaderScript = document.createElement('script');
-        objLoaderScript.src = 'https://cdn.jsdelivr.net/npm/three@0.158.0/examples/js/loaders/OBJLoader.js';
-        objLoaderScript.onload = () => {
-          console.log('OBJLoader loaded');
+        // After OBJLoader loads, load OrbitControls
+        const orbitScript = document.createElement('script');
+        orbitScript.src = 'https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js';
+        orbitScript.onload = () => {
+          console.log('OrbitControls loaded');
+          console.log('All THREE.js libraries loaded successfully');
           this.librariesLoaded = true;
           callback();
         };
-        objLoaderScript.onerror = () => console.error('Failed to load OBJLoader');
-        document.head.appendChild(objLoaderScript);
+        orbitScript.onerror = (error) => {
+          console.error('Failed to load OrbitControls', error);
+          this.showError('Failed to load 3D controls');
+        };
+        document.head.appendChild(orbitScript);
       };
-      orbitScript.onerror = () => console.error('Failed to load OrbitControls');
-      document.head.appendChild(orbitScript);
+      objLoaderScript.onerror = (error) => {
+        console.error('Failed to load OBJLoader', error);
+        this.showError('Failed to load 3D model loader');
+      };
+      document.head.appendChild(objLoaderScript);
     };
-    threeScript.onerror = () => console.error('Failed to load THREE.js');
+    threeScript.onerror = (error) => {
+      console.error('Failed to load THREE.js', error);
+      this.showError('Failed to load 3D library');
+    };
     document.head.appendChild(threeScript);
   }
 
+  showError(message) {
+    const loadingElement = this.querySelector('#loading');
+    if (loadingElement) {
+      loadingElement.innerHTML = `<div style="color: red;">${message}</div>`;
+    }
+  }
+
   initThreeJS() {
+    console.log('Initializing THREE.js scene...');
     const container = this.querySelector('#canvas-container');
     const loadingElement = this.querySelector('#loading');
     
@@ -191,15 +211,24 @@ class ThreeDObjectViewer extends HTMLElement {
       return;
     }
     
+    const rect = container.getBoundingClientRect();
+    console.log('Container dimensions:', rect.width, 'x', rect.height);
+    
+    if (rect.width === 0 || rect.height === 0) {
+      console.error('Container has zero dimensions');
+      this.showError('Container has no size');
+      return;
+    }
+    
     // Scene setup
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color(0xf0f0f0);
     
     // Camera setup
-    const rect = container.getBoundingClientRect();
     const aspect = rect.width / rect.height;
     this.camera = new THREE.PerspectiveCamera(45, aspect, 0.1, 1000);
-    this.camera.position.set(0, 0, 5);
+    this.camera.position.set(0, 2, 8);
+    this.camera.lookAt(0, 0, 0);
     
     // Renderer setup
     this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
@@ -207,6 +236,8 @@ class ThreeDObjectViewer extends HTMLElement {
     this.renderer.setPixelRatio(window.devicePixelRatio);
     this.renderer.shadowMap.enabled = true;
     container.appendChild(this.renderer.domElement);
+    
+    console.log('Renderer created');
     
     // Orbit Controls
     this.controls = new THREE.OrbitControls(this.camera, this.renderer.domElement);
@@ -216,8 +247,10 @@ class ThreeDObjectViewer extends HTMLElement {
     this.controls.enablePan = true;
     this.controls.autoRotate = false;
     
+    console.log('Controls initialized');
+    
     // Lighting
-    const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.7);
     this.scene.add(ambientLight);
     
     const directionalLight1 = new THREE.DirectionalLight(0xffffff, 0.8);
@@ -226,8 +259,14 @@ class ThreeDObjectViewer extends HTMLElement {
     this.scene.add(directionalLight1);
     
     const directionalLight2 = new THREE.DirectionalLight(0xffffff, 0.4);
-    directionalLight2.position.set(-5, -5, -5);
+    directionalLight2.position.set(-5, 3, -5);
     this.scene.add(directionalLight2);
+    
+    const directionalLight3 = new THREE.DirectionalLight(0xffffff, 0.3);
+    directionalLight3.position.set(0, -5, 0);
+    this.scene.add(directionalLight3);
+    
+    console.log('Lights added');
     
     // Load OBJ model
     this.loadOBJModel();
@@ -238,12 +277,20 @@ class ThreeDObjectViewer extends HTMLElement {
     
     if (loadingElement) {
       loadingElement.style.display = 'block';
+      loadingElement.innerHTML = `
+        <div class="spinner"></div>
+        <div>Loading 3D Model...</div>
+      `;
     }
     
+    console.log('Starting to load OBJ model from:', this.OBJ_FILE_URL);
+    
     const loader = new THREE.OBJLoader();
+    
     loader.load(
       this.OBJ_FILE_URL,
       (obj) => {
+        console.log('OBJ model loaded successfully', obj);
         this.object = obj;
         
         // Center and scale the object
@@ -251,7 +298,11 @@ class ThreeDObjectViewer extends HTMLElement {
         const center = box.getCenter(new THREE.Vector3());
         const size = box.getSize(new THREE.Vector3());
         const maxDim = Math.max(size.x, size.y, size.z);
-        const scale = 2 / maxDim;
+        const scale = 3 / maxDim;
+        
+        console.log('Model size:', size);
+        console.log('Model center:', center);
+        console.log('Scale factor:', scale);
         
         obj.scale.multiplyScalar(scale);
         obj.position.sub(center.multiplyScalar(scale));
@@ -262,7 +313,8 @@ class ThreeDObjectViewer extends HTMLElement {
             child.material = new THREE.MeshPhongMaterial({
               color: 0x808080,
               shininess: 30,
-              flatShading: false
+              flatShading: false,
+              side: THREE.DoubleSide
             });
             child.castShadow = true;
             child.receiveShadow = true;
@@ -273,16 +325,24 @@ class ThreeDObjectViewer extends HTMLElement {
         if (loadingElement) {
           loadingElement.style.display = 'none';
         }
-        console.log('OBJ model loaded successfully');
+        console.log('Model added to scene');
       },
       (xhr) => {
-        const percentComplete = (xhr.loaded / xhr.total) * 100;
-        console.log(`${Math.round(percentComplete)}% loaded`);
+        if (xhr.lengthComputable) {
+          const percentComplete = (xhr.loaded / xhr.total) * 100;
+          console.log(`Loading: ${Math.round(percentComplete)}%`);
+          if (loadingElement) {
+            const progressDiv = loadingElement.querySelector('div:last-child');
+            if (progressDiv) {
+              progressDiv.textContent = `Loading: ${Math.round(percentComplete)}%`;
+            }
+          }
+        }
       },
       (error) => {
         console.error('Error loading OBJ file:', error);
         if (loadingElement) {
-          loadingElement.innerHTML = '<div>Error loading model</div>';
+          loadingElement.innerHTML = '<div style="color: red;">Error loading model<br/>Check console for details</div>';
         }
       }
     );
@@ -299,6 +359,7 @@ class ThreeDObjectViewer extends HTMLElement {
       entries.forEach(entry => {
         if (entry.isIntersecting && !this.isInViewport) {
           // Entering viewport
+          console.log('Element entering viewport');
           this.isInViewport = true;
           if (!this.hasEnteredOnce) {
             this.entryRotation = 0;
@@ -306,6 +367,7 @@ class ThreeDObjectViewer extends HTMLElement {
           }
         } else if (!entry.isIntersecting && this.isInViewport) {
           // Exiting viewport
+          console.log('Element exiting viewport');
           this.isInViewport = false;
           if (!this.hasExitedOnce) {
             this.exitRotation = 0;
@@ -361,6 +423,8 @@ class ThreeDObjectViewer extends HTMLElement {
     if (this.renderer) {
       this.renderer.setSize(rect.width, rect.height);
     }
+    
+    console.log('Resized to:', rect.width, 'x', rect.height);
   }
 }
 
