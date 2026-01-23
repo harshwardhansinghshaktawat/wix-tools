@@ -30,6 +30,8 @@ class ImageCompressionTool extends HTMLElement {
     this.compressedImage = null;
     this.originalSize = 0;
     this.compressedSize = 0;
+    this.batchFiles = [];
+    this.compressedBatchImages = [];
     
     this.render();
     this.setupEventListeners();
@@ -206,6 +208,20 @@ class ImageCompressionTool extends HTMLElement {
               <button class="secondary" id="clear-batch">Clear All</button>
             </div>
             <div id="batch-items"></div>
+            <div class="batch-stats" id="batch-stats" style="display: none;">
+              <div class="stat-item">
+                <span class="stat-label">Total Original Size:</span>
+                <span class="stat-value" id="batch-original-size">0 KB</span>
+              </div>
+              <div class="stat-item">
+                <span class="stat-label">Total Compressed Size:</span>
+                <span class="stat-value" id="batch-compressed-size">0 KB</span>
+              </div>
+              <div class="stat-item">
+                <span class="stat-label">Total Saved:</span>
+                <span class="stat-value" id="batch-saved">0 KB</span>
+              </div>
+            </div>
             <div class="batch-actions">
               <button id="batch-compress-btn">Compress All</button>
               <button class="secondary" id="batch-download-btn" disabled>Download All (ZIP)</button>
@@ -433,7 +449,7 @@ class ImageCompressionTool extends HTMLElement {
         font-family: var(--font-family);
       }
 
-      .stats-section {
+      .stats-section, .batch-stats {
         background-color: var(--secondary-bg);
         border-radius: var(--border-radius);
         padding: 16px;
@@ -442,6 +458,7 @@ class ImageCompressionTool extends HTMLElement {
         gap: 20px;
         border: 1px solid var(--border-color);
         flex-wrap: wrap;
+        margin-bottom: 16px;
       }
 
       .stat-item {
@@ -543,7 +560,7 @@ class ImageCompressionTool extends HTMLElement {
         grid-column: 1 / -1;
       }
 
-      .action-buttons {
+      .action-buttons, .batch-actions {
         display: flex;
         gap: 10px;
         margin-top: 20px;
@@ -636,6 +653,7 @@ class ImageCompressionTool extends HTMLElement {
       .batch-item-status.pending {
         background-color: var(--secondary-bg);
         color: var(--secondary-text);
+        border: 1px solid var(--border-color);
       }
 
       .batch-item-status.processing {
@@ -646,12 +664,6 @@ class ImageCompressionTool extends HTMLElement {
       .batch-item-status.completed {
         background-color: #4caf50;
         color: white;
-      }
-
-      .batch-actions {
-        display: flex;
-        gap: 10px;
-        flex-wrap: wrap;
       }
 
       .settings-section {
@@ -713,7 +725,7 @@ class ImageCompressionTool extends HTMLElement {
           width: 100%;
         }
 
-        .stats-section {
+        .stats-section, .batch-stats {
           flex-direction: column;
         }
 
@@ -844,6 +856,18 @@ class ImageCompressionTool extends HTMLElement {
         this.handleBatchSelect(e.dataTransfer.files);
       }
     });
+
+    // Batch compress button
+    const batchCompressBtn = this.shadowRoot.querySelector('#batch-compress-btn');
+    batchCompressBtn.addEventListener('click', () => this.compressBatch());
+
+    // Batch download button
+    const batchDownloadBtn = this.shadowRoot.querySelector('#batch-download-btn');
+    batchDownloadBtn.addEventListener('click', () => this.downloadBatchAsZip());
+
+    // Clear batch button
+    const clearBatchBtn = this.shadowRoot.querySelector('#clear-batch');
+    clearBatchBtn.addEventListener('click', () => this.clearBatch());
 
     // Settings - Default quality
     const defaultQuality = this.shadowRoot.querySelector('#default-quality');
@@ -990,13 +1014,20 @@ class ImageCompressionTool extends HTMLElement {
     const batchItems = this.shadowRoot.querySelector('#batch-items');
     const batchCount = this.shadowRoot.querySelector('#batch-count');
     
-    batchList.style.display = 'block';
-    batchItems.innerHTML = '';
-    
     const validFiles = Array.from(files).filter(file => 
       file.type.startsWith('image/') && file.size <= 10 * 1024 * 1024
     );
     
+    if (validFiles.length === 0) {
+      this.showMessage('No valid images selected');
+      return;
+    }
+
+    this.batchFiles = validFiles;
+    this.compressedBatchImages = [];
+    
+    batchList.style.display = 'block';
+    batchItems.innerHTML = '';
     batchCount.textContent = validFiles.length;
     
     validFiles.forEach((file, index) => {
@@ -1011,6 +1042,151 @@ class ImageCompressionTool extends HTMLElement {
       `;
       batchItems.appendChild(item);
     });
+
+    // Reset download button
+    this.shadowRoot.querySelector('#batch-download-btn').disabled = true;
+    this.shadowRoot.querySelector('#batch-stats').style.display = 'none';
+  }
+
+  async compressBatch() {
+    if (this.batchFiles.length === 0) {
+      this.showMessage('No images to compress');
+      return;
+    }
+
+    const defaultQuality = parseInt(this.shadowRoot.querySelector('#default-quality').value) / 100;
+    const defaultFormat = this.shadowRoot.querySelector('#default-format').value;
+    const maxDimension = parseInt(this.shadowRoot.querySelector('#max-dimension').value) || 0;
+
+    this.compressedBatchImages = [];
+    let totalOriginalSize = 0;
+    let totalCompressedSize = 0;
+
+    for (let i = 0; i < this.batchFiles.length; i++) {
+      const file = this.batchFiles[i];
+      const statusElement = this.shadowRoot.querySelector(`#batch-status-${i}`);
+      
+      // Update status to processing
+      statusElement.textContent = 'Processing...';
+      statusElement.className = 'batch-item-status processing';
+
+      try {
+        const compressedBlob = await this.compressSingleFile(file, defaultQuality, defaultFormat, maxDimension);
+        
+        totalOriginalSize += file.size;
+        totalCompressedSize += compressedBlob.size;
+
+        this.compressedBatchImages.push({
+          blob: compressedBlob,
+          name: file.name.replace(/\.[^/.]+$/, '') + '.' + defaultFormat,
+          originalSize: file.size,
+          compressedSize: compressedBlob.size
+        });
+
+        // Update status to completed
+        statusElement.textContent = 'Completed';
+        statusElement.className = 'batch-item-status completed';
+      } catch (error) {
+        statusElement.textContent = 'Failed';
+        statusElement.className = 'batch-item-status pending';
+        console.error('Compression failed for', file.name, error);
+      }
+    }
+
+    // Show stats
+    const batchStats = this.shadowRoot.querySelector('#batch-stats');
+    batchStats.style.display = 'flex';
+    this.shadowRoot.querySelector('#batch-original-size').textContent = this.formatBytes(totalOriginalSize);
+    this.shadowRoot.querySelector('#batch-compressed-size').textContent = this.formatBytes(totalCompressedSize);
+    this.shadowRoot.querySelector('#batch-saved').textContent = this.formatBytes(totalOriginalSize - totalCompressedSize);
+
+    // Enable download button
+    this.shadowRoot.querySelector('#batch-download-btn').disabled = false;
+    this.showMessage(`Successfully compressed ${this.compressedBatchImages.length} images!`);
+  }
+
+  compressSingleFile(file, quality, format, maxDimension) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      
+      reader.onload = (e) => {
+        const img = new Image();
+        
+        img.onload = () => {
+          let width = img.width;
+          let height = img.height;
+
+          // Apply max dimension if set
+          if (maxDimension > 0 && (width > maxDimension || height > maxDimension)) {
+            if (width > height) {
+              height = Math.round((height * maxDimension) / width);
+              width = maxDimension;
+            } else {
+              width = Math.round((width * maxDimension) / height);
+              height = maxDimension;
+            }
+          }
+
+          const canvas = document.createElement('canvas');
+          canvas.width = width;
+          canvas.height = height;
+          
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(img, 0, 0, width, height);
+          
+          const mimeType = format === 'jpeg' ? 'image/jpeg' : 
+                         format === 'png' ? 'image/png' : 'image/webp';
+          
+          canvas.toBlob((blob) => {
+            if (blob) {
+              resolve(blob);
+            } else {
+              reject(new Error('Failed to create blob'));
+            }
+          }, mimeType, quality);
+        };
+        
+        img.onerror = () => reject(new Error('Failed to load image'));
+        img.src = e.target.result;
+      };
+      
+      reader.onerror = () => reject(new Error('Failed to read file'));
+      reader.readAsDataURL(file);
+    });
+  }
+
+  async downloadBatchAsZip() {
+    if (this.compressedBatchImages.length === 0) {
+      this.showMessage('No compressed images to download');
+      return;
+    }
+
+    // For simplicity, download images individually
+    // In production, you'd want to use a ZIP library like JSZip
+    this.showMessage('Downloading images individually (ZIP functionality requires JSZip library)');
+    
+    for (const image of this.compressedBatchImages) {
+      const url = URL.createObjectURL(image.blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = image.name;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      
+      // Small delay between downloads
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+  }
+
+  clearBatch() {
+    this.batchFiles = [];
+    this.compressedBatchImages = [];
+    
+    this.shadowRoot.querySelector('#batch-list').style.display = 'none';
+    this.shadowRoot.querySelector('#batch-file-input').value = '';
+    this.shadowRoot.querySelector('#batch-download-btn').disabled = true;
   }
 
   formatBytes(bytes) {
