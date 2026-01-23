@@ -32,9 +32,34 @@ class ImageCompressionTool extends HTMLElement {
     this.compressedSize = 0;
     this.batchFiles = [];
     this.compressedBatchImages = [];
+    this.jsZipLoaded = false;
     
+    this.loadJSZip();
     this.render();
     this.setupEventListeners();
+  }
+
+  async loadJSZip() {
+    if (typeof JSZip !== 'undefined') {
+      this.jsZipLoaded = true;
+      return;
+    }
+
+    try {
+      const script = document.createElement('script');
+      script.src = 'https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js';
+      script.onload = () => {
+        this.jsZipLoaded = true;
+        console.log('JSZip loaded successfully');
+      };
+      script.onerror = () => {
+        console.error('Failed to load JSZip');
+        this.jsZipLoaded = false;
+      };
+      document.head.appendChild(script);
+    } catch (error) {
+      console.error('Error loading JSZip:', error);
+    }
   }
 
   static get observedAttributes() {
@@ -1161,22 +1186,46 @@ class ImageCompressionTool extends HTMLElement {
       return;
     }
 
-    // For simplicity, download images individually
-    // In production, you'd want to use a ZIP library like JSZip
-    this.showMessage('Downloading images individually (ZIP functionality requires JSZip library)');
-    
-    for (const image of this.compressedBatchImages) {
-      const url = URL.createObjectURL(image.blob);
+    if (!this.jsZipLoaded) {
+      this.showMessage('ZIP library is loading, please wait...');
+      // Wait for JSZip to load
+      await new Promise(resolve => {
+        const checkInterval = setInterval(() => {
+          if (this.jsZipLoaded) {
+            clearInterval(checkInterval);
+            resolve();
+          }
+        }, 100);
+      });
+    }
+
+    try {
+      const zip = new JSZip();
+      const folder = zip.folder('compressed-images');
+
+      // Add each compressed image to the ZIP
+      for (const image of this.compressedBatchImages) {
+        folder.file(image.name, image.blob);
+      }
+
+      // Generate the ZIP file
+      this.showMessage('Creating ZIP file...');
+      const zipBlob = await zip.generateAsync({ type: 'blob' });
+
+      // Download the ZIP file
+      const url = URL.createObjectURL(zipBlob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = image.name;
+      a.download = `compressed-images-${Date.now()}.zip`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
-      
-      // Small delay between downloads
-      await new Promise(resolve => setTimeout(resolve, 100));
+
+      this.showMessage(`ZIP file with ${this.compressedBatchImages.length} images downloaded successfully!`);
+    } catch (error) {
+      console.error('Error creating ZIP:', error);
+      this.showMessage('Error creating ZIP file. Please try again.');
     }
   }
 
